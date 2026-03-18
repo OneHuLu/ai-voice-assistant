@@ -1,0 +1,15 @@
+name: env-stt
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - fastapi
+  - uvicorn
+  - pydantic
+  - numpy
+  - pip
+  - pip:
+      - faster-whisper
+      - onnxruntime
+      - onnxruntime-metal
+      - python-multipart

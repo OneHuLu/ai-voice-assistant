@@ -1,0 +1,6 @@
+models/*
+.DS_Store
+ai/tts/test
+ai/stt/test
+
+index.html

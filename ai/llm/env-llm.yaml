@@ -1,0 +1,13 @@
+name: env-llm
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - fastapi
+  - uvicorn
+  - pydantic
+  - requests
+  - numpy
+  - pip
+  - pip:
+      - llama-cpp-python==0.2.90

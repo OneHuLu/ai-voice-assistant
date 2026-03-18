@@ -1,0 +1,19 @@
+name: env-tts
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - pytorch
+  - torchaudio
+  - librosa
+  - pip:
+      - fastapi
+      - uvicorn
+      - pydantic
+      - ttsfrd
+      - soundfile
+      - einops
+      - transformers
+      - sentencepiece
