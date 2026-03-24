@@ -3,4 +3,7 @@ models/*
 ai/tts/test
 ai/stt/test
 
+__pycache__/
+*.pyc
+
 index.html

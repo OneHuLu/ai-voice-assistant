@@ -1,137 +1,199 @@
-import sys
+import json
 import os
+from typing import Any, Dict, List
+from urllib.parse import urlparse
+
+import requests
 import uvicorn
-import argparse
-import multiprocessing
-import socket
-import logging
-import signal
-import time
-from typing import List
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+CONFIG_PATH = os.getenv(
+    "AI_CONFIG_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "config.json"),
 )
-logger = logging.getLogger(__name__)
-
-# 加入项目根目录
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-sys.path.insert(0, ROOT)
-
-# 全局进程列表，用于信号处理
-processes: List[multiprocessing.Process] = []
 
 
-def is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
-    """检查端口是否被占用"""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+def _load_file_config() -> Dict[str, Any]:
+    if not os.path.exists(CONFIG_PATH):
+        return {}
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
+    # 优先级：环境变量 > 公共配置文件 > 默认值
+    return os.getenv(env_key, str(file_cfg.get(file_key, default))).strip()
+
+
+def _base_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url)
+    return f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else raw_url
+
+
+_gateway_cfg = _load_file_config().get("gateway")
+_gateway_cfg = _gateway_cfg if isinstance(_gateway_cfg, dict) else {}
+
+STT_URL = _cfg(_gateway_cfg, "STT_URL", "stt_url", "http://127.0.0.1:8000/transcribe")
+LLM_URL = _cfg(_gateway_cfg, "LLM_URL", "llm_url", "http://127.0.0.1:8041/llm/predict")
+TTS_URL = _cfg(_gateway_cfg, "TTS_URL", "tts_url", "http://127.0.0.1:8030/tts/synthesize")
+GATEWAY_HOST = _cfg(_gateway_cfg, "GATEWAY_HOST", "host", "0.0.0.0")
+GATEWAY_PORT = int(_cfg(_gateway_cfg, "GATEWAY_PORT", "port", "8010"))
+
+app = FastAPI(title="AI Voice Assistant Gateway")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class ChatRequest(BaseModel):
+    messages: List[Dict[str, Any]] = Field(default_factory=list)
+    prompt: str = ""
+    max_tokens: int = 512
+    temperature: float = 0.7
+    tts_model: str = "cosyvoice-v3-flash"
+    tts_voice: str = "longanyang"
+
+
+class TTSProxyRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    model: str = "cosyvoice-v3-flash"
+    voice: str = "longanyang"
+
+
+def _extract_reply_text(llm_resp: Dict[str, Any]) -> str:
+    choices = llm_resp.get("choices") or []
+    if choices:
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+
+    output = llm_resp.get("output") or {}
+    out_choices = output.get("choices") or []
+    if out_choices:
+        msg = out_choices[0].get("message") or {}
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content
+
+    return ""
+
+
+def _build_messages(req: ChatRequest) -> List[Dict[str, str]]:
+    if req.messages:
+        return req.messages
+    if req.prompt.strip():
+        return [{"role": "user", "content": req.prompt.strip()}]
+    raise HTTPException(status_code=400, detail="messages 或 prompt 至少传一个")
+
+
+@app.get("/health")
+def health() -> Dict[str, Any]:
+    checks: Dict[str, Any] = {}
+    targets = {
+        "llm": f"{_base_url(LLM_URL)}/docs",
+        "tts": f"{_base_url(TTS_URL)}/health",
+        "stt": f"{_base_url(STT_URL)}/docs",
+    }
+
+    for name, url in targets.items():
         try:
-            s.bind((host, port))
-            return False
-        except socket.error:
-            return True
+            resp = requests.get(url, timeout=3)
+            checks[name] = {"ok": resp.status_code < 500, "status_code": resp.status_code}
+        except Exception as e:
+            checks[name] = {"ok": False, "error": str(e)}
+
+    return {"ok": True, "services": checks, "config_path": CONFIG_PATH}
 
 
-def signal_handler(signum, frame):
-    """处理信号，优雅退出所有子进程"""
-    sig_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
-    logger.info(f"接收到 {sig_name} 信号，正在停止所有服务...")
-    
-    for p in processes:
-        if p.is_alive():
-            logger.info(f"停止进程: {p.name} (PID: {p.pid})")
-            p.terminate()
-            p.join(timeout=5)
-            if p.is_alive():
-                logger.warning(f"进程 {p.name} 未响应，强制结束")
-                p.kill()
-    
-    logger.info("所有服务已停止")
-    sys.exit(0)
+@app.post("/chat/text")
+def chat_text(req: ChatRequest) -> Dict[str, Any]:
+    messages = _build_messages(req)
 
+    llm_payload = {
+        "messages": messages,
+        "max_tokens": req.max_tokens,
+        "temperature": req.temperature,
+    }
 
-def start_stt():
-    """启动 STT 服务"""
     try:
-        from ai.stt.whisper_service import app as stt_app
-        logger.info("STT 服务启动中...")
-        uvicorn.run(stt_app, host="127.0.0.1", port=8000, reload=False)
+        llm_res = requests.post(LLM_URL, json=llm_payload, timeout=120)
+        llm_data = llm_res.json()
     except Exception as e:
-        logger.error(f"STT 服务异常: {e}")
-        raise
+        raise HTTPException(status_code=500, detail=f"调用 LLM 服务失败: {e}")
+
+    if llm_res.status_code != 200:
+        raise HTTPException(status_code=llm_res.status_code, detail=llm_data)
+
+    reply_text = _extract_reply_text(llm_data).strip()
+    if not reply_text:
+        raise HTTPException(status_code=502, detail="LLM 返回为空")
+
+    return {
+        "reply_text": reply_text,
+        "llm_raw": llm_data,
+    }
 
 
-def start_llm():
-    """启动 LLM 服务"""
+@app.post("/tts/synthesize/proxy")
+def tts_proxy(req: TTSProxyRequest) -> Dict[str, Any]:
+    payload = {
+        "text": req.text,
+        "model": req.model,
+        "voice": req.voice,
+    }
     try:
-        from ai.llm.qwen_service import app as llm_app
-        logger.info("LLM 服务启动中...")
-        uvicorn.run(llm_app, host="127.0.0.1", port=8001, reload=False)
+        tts_res = requests.post(TTS_URL, json=payload, timeout=120)
+        tts_data = tts_res.json()
     except Exception as e:
-        logger.error(f"LLM 服务异常: {e}")
-        raise
+        raise HTTPException(status_code=500, detail=f"调用 TTS 服务失败: {e}")
+
+    if tts_res.status_code != 200:
+        raise HTTPException(status_code=tts_res.status_code, detail=tts_data)
+
+    return tts_data
+
+
+@app.post("/chat/tts")
+def chat_tts(req: ChatRequest) -> Dict[str, Any]:
+    # 链路：先调用 LLM 生成文本，再调用 TTS 合成语音
+    chat_result = chat_text(req)
+    reply_text = chat_result["reply_text"]
+
+    tts_payload = {
+        "text": reply_text,
+        "model": req.tts_model,
+        "voice": req.tts_voice,
+    }
+    try:
+        tts_res = requests.post(TTS_URL, json=tts_payload, timeout=120)
+        tts_data = tts_res.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"调用 TTS 服务失败: {e}")
+
+    if tts_res.status_code != 200:
+        raise HTTPException(status_code=tts_res.status_code, detail=tts_data)
+
+    return {
+        "reply_text": reply_text,
+        "audio_base64": tts_data.get("audio_base64"),
+        "audio_mime_type": tts_data.get("audio_mime_type", "audio/mpeg"),
+        "tts_request_id": tts_data.get("request_id"),
+        "llm_raw": chat_result.get("llm_raw"),
+    }
 
 
 if __name__ == "__main__":
-    multiprocessing.set_start_method("spawn")
-    
-    # 注册信号处理
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # 参数解析
-    parser = argparse.ArgumentParser(description="AI 语音助手网关服务")
-    parser.add_argument("--stt", action="store_true", help="启动语音识别服务")
-    parser.add_argument("--llm", action="store_true", help="启动大语言模型服务")
-    parser.add_argument("--all", action="store_true", help="启动所有服务")
-    args = parser.parse_args()
-    
-    # 验证参数
-    if not (args.all or args.stt or args.llm):
-        parser.print_help()
-        logger.error("请指定要启动的服务: --stt, --llm 或 --all")
-        sys.exit(1)
-    
-    # 检查端口占用
-    services_to_start = []
-    if args.all or args.stt:
-        if is_port_in_use(8000):
-            logger.error("端口 8000 已被占用，无法启动 STT 服务")
-            sys.exit(1)
-        services_to_start.append(("STT", start_stt, 8000))
-    
-    if args.all or args.llm:
-        if is_port_in_use(8001):
-            logger.error("端口 8001 已被占用，无法启动 LLM 服务")
-            sys.exit(1)
-        services_to_start.append(("LLM", start_llm, 8001))
-    
-    # 启动服务
-    for name, target, port in services_to_start:
-        p = multiprocessing.Process(target=target, name=name)
-        p.start()
-        processes.append(p)
-        logger.info(f"{name} 服务已启动 (PID: {p.pid}, 端口: {port})")
-    
-    # 监控进程状态
-    logger.info("按 Ctrl+C 停止所有服务")
-    try:
-        while True:
-            time.sleep(1)
-            # 检查是否有进程异常退出
-            for p in processes:
-                if not p.is_alive() and p.exitcode is not None:
-                    if p.exitcode != 0:
-                        logger.error(f"{p.name} 服务异常退出，退出码: {p.exitcode}")
-                    else:
-                        logger.info(f"{p.name} 服务已正常退出")
-                    processes.remove(p)
-            
-            # 如果所有进程都结束了，主进程也退出
-            if not processes:
-                logger.info("所有服务已结束")
-                break
-    except KeyboardInterrupt:
-        signal_handler(signal.SIGINT, None)
+    uvicorn.run(app, host=GATEWAY_HOST, port=GATEWAY_PORT)

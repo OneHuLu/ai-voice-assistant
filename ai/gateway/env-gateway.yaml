@@ -7,4 +7,3 @@ dependencies:
   - uvicorn
   - pydantic
   - requests
-  - numpy
