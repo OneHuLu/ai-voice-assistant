@@ -11,5 +11,4 @@ dependencies:
   - pip:
       - faster-whisper
       - onnxruntime
-      - onnxruntime-metal
       - python-multipart

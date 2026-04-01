@@ -15,9 +15,11 @@ CONFIG_PATH = os.getenv(
     "AI_CONFIG_PATH",
     os.path.join(os.path.dirname(__file__), "..", "config.json"),
 )
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def _load_file_config() -> Dict[str, Any]:
+    """读取公共配置文件并返回字典。"""
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:
@@ -29,16 +31,43 @@ def _load_file_config() -> Dict[str, Any]:
 
 
 def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
+    """按“环境变量 > 配置文件 > 默认值”读取配置项。"""
     # 优先级：环境变量 > 公共配置文件 > 默认值
     return os.getenv(env_key, str(file_cfg.get(file_key, default))).strip()
+
+
+def _resolve_path(path_value: str) -> str:
+    """将相对路径转换为项目根目录下的绝对路径。"""
+    p = (path_value or "").strip()
+    if not p:
+        return p
+    return p if os.path.isabs(p) else os.path.abspath(os.path.join(PROJECT_ROOT, p))
 
 
 _llm_cfg = _load_file_config().get("llm")
 _llm_cfg = _llm_cfg if isinstance(_llm_cfg, dict) else {}
 
 # 读取参数信息
-LLAMA_CPP_BIN = _cfg(_llm_cfg, "LLAMA_CPP_BIN", "llama_cpp_bin")
-MODEL_PATH = _cfg( _llm_cfg, "LLM_MODEL_PATH", "model_path")
+LLAMA_CPP_BIN = _cfg(
+    _llm_cfg,
+    "LLAMA_CPP_BIN",
+    "llama_cpp_bin",
+    "models/llama.cpp/build/bin/llama-server",
+)
+MODEL_PATH = _cfg(
+    _llm_cfg,
+    "LLM_MODEL_PATH",
+    "model_path",
+    "models/llm_models/Qwen2.5-14B-Instruct-IQ4_XS.gguf",
+)
+LLAMA_CPP_BIN = _resolve_path(LLAMA_CPP_BIN)
+MODEL_PATH = _resolve_path(MODEL_PATH)
+
+if not os.path.exists(LLAMA_CPP_BIN):
+    raise FileNotFoundError(f"llama-server 不存在: {LLAMA_CPP_BIN}")
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"LLM 模型不存在: {MODEL_PATH}")
+
 LLAMA_HOST = _cfg(_llm_cfg, "LLAMA_HOST", "llama_host", "127.0.0.1")
 LLAMA_PORT = int(_cfg(_llm_cfg, "LLAMA_PORT", "llama_port", "8040"))
 N_GPU_LAYERS = int(_cfg(_llm_cfg, "LLM_N_GPU_LAYERS", "n_gpu_layers", "99"))
@@ -49,9 +78,9 @@ REPEAT_PENALTY = float(_cfg(_llm_cfg, "LLM_REPEAT_PENALTY", "repeat_penalty", "1
 FASTAPI_HOST = _cfg(_llm_cfg, "LLM_API_HOST", "api_host", "0.0.0.0")
 FASTAPI_PORT = int(_cfg(_llm_cfg, "LLM_API_PORT", "api_port", "8041"))
 
-
 # llama 服务启动
 def start_llama_server():
+    """启动本地 llama-server 子进程。"""
     cmd = [
         LLAMA_CPP_BIN,
         "-m",
@@ -102,6 +131,7 @@ LLAMA_SERVER_URL = f"http://{LLAMA_HOST}:{LLAMA_PORT}/v1/chat/completions"
 
 @app.post("/llm/predict")
 async def predict(request: LLMRequest):
+    """代理请求到 llama-server 的 chat/completions 接口。"""
     try:
         if not request.messages:
             messages = [{"role": "user", "content": request.prompt}]

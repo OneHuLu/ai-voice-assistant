@@ -7,6 +7,9 @@ import json
 
 # ================= 配置 =================
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+LOCAL_ENV_PATH = os.path.join(PROJECT_ROOT, ".env.local")
+
 SERVICES = {
     "gateway": {
         "env": "env-gateway",
@@ -39,6 +42,7 @@ CONFIG_PATH = os.getenv("AI_CONFIG_PATH", os.path.join("ai", "config.json"))
 
 
 def _load_file_config():
+    """读取公共配置文件并返回字典，读取失败时返回空字典。"""
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:
@@ -50,6 +54,7 @@ def _load_file_config():
 
 
 def _apply_ports_from_config():
+    """将 config 中端口映射到启动器服务清单。"""
     # 启动器端口也走统一配置，确保 start.py 与各服务读取结果一致
     config = _load_file_config()
     service_port_map = {
@@ -63,7 +68,28 @@ def _apply_ports_from_config():
         SERVICES[service_name]["port"] = int(os.getenv(f"{service_name.upper()}_PORT", str(sec.get(key, fallback))))
 
 
+def _apply_local_env_file() -> None:
+    """加载项目根目录 .env.local 到当前进程环境变量。"""
+    if not os.path.exists(LOCAL_ENV_PATH):
+        return
+    with open(LOCAL_ENV_PATH, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].strip()
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ[key] = value
+
+
 _apply_ports_from_config()
+_apply_local_env_file()
 
 processes = []
 
@@ -71,20 +97,24 @@ processes = []
 # ================= 工具函数 =================
 
 def run_cmd(cmd):
+    """执行 shell 命令并返回执行结果对象。"""
     return subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def env_exists(env_name):
+    """检查 conda 环境是否存在。"""
     result = run_cmd("conda env list")
     return env_name in result.stdout.decode()
 
 
 def create_env(yaml_path):
+    """根据 yaml 文件创建 conda 环境。"""
     print(f"📦 创建环境: {yaml_path}")
     os.system(f"conda env create -f {yaml_path}")
 
 
 def ensure_env(service):
+    """确保服务所需 conda 环境可用，不存在则自动创建。"""
     env_name = service["env"]
     yaml_path = service["yaml"]
 
@@ -96,6 +126,7 @@ def ensure_env(service):
 
 
 def start_service(name):
+    """按服务名启动子进程并记录到 processes。"""
     config = SERVICES[name]
     print('config ==>', config)
 
@@ -115,6 +146,7 @@ def start_service(name):
 
 
 def stop_all():
+    """停止当前启动器拉起的全部子服务。"""
     print("\n🛑 正在关闭所有服务...")
     for name, p in processes:
         print(f"关闭 {name}...")
@@ -124,6 +156,7 @@ def stop_all():
 # ================= 主逻辑 =================
 
 def main():
+    """解析启动参数并按顺序启动指定服务。"""
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--all", action="store_true")

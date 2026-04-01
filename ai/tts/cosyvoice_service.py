@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 
 def _resolve_ws_url(region: str) -> str:
+    """根据区域选择 DashScope WebSocket 接入地址。"""
     normalized = (region or "").strip().lower()
     if normalized in {"sg", "intl", "international", "ap-southeast-1", "singapore"}:
         return "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference"
@@ -41,6 +42,7 @@ def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) ->
 
 
 def _load_runtime_config():
+    """读取 TTS 运行配置（key、区域、默认模型与音色）。"""
     # 每次请求动态读取，避免改配置后必须重启服务
     root_cfg = _load_file_config()
     tts_cfg = root_cfg.get("tts") if isinstance(root_cfg.get("tts"), dict) else {}
@@ -88,6 +90,7 @@ def health_check():
 @app.post("/tts/synthesize")
 @app.post("/synthesize")
 def synthesize(req: TTSRequest):
+    """将文本合成为语音并返回 base64 音频。"""
     api_key, _, ws_url, default_model, default_voice = _load_runtime_config()
     if not api_key:
         raise HTTPException(status_code=500, detail="缺少 DASHSCOPE_API_KEY（环境变量或公共配置文件）")

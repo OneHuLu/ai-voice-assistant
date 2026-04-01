@@ -17,6 +17,7 @@ CONFIG_PATH = os.getenv(
 
 
 def _load_file_config() -> Dict[str, Any]:
+    """读取公共配置文件并返回字典。"""
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:
@@ -73,6 +74,7 @@ class TTSProxyRequest(BaseModel):
 
 
 def _extract_reply_text(llm_resp: Dict[str, Any]) -> str:
+    """兼容多种 LLM 返回结构，提取最终回复文本。"""
     choices = llm_resp.get("choices") or []
     if choices:
         message = choices[0].get("message") or {}
@@ -168,6 +170,7 @@ def tts_proxy(req: TTSProxyRequest) -> Dict[str, Any]:
 
 @app.post("/chat/tts")
 def chat_tts(req: ChatRequest) -> Dict[str, Any]:
+    """执行完整链路：LLM 生成回复文本，再转 TTS 音频。"""
     # 链路：先调用 LLM 生成文本，再调用 TTS 合成语音
     chat_result = chat_text(req)
     reply_text = chat_result["reply_text"]

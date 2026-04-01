@@ -17,6 +17,7 @@ CONFIG_PATH = os.getenv(
 
 
 def _load_file_config() -> Dict:
+    """读取公共配置文件并返回字典。"""
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:
@@ -28,6 +29,7 @@ def _load_file_config() -> Dict:
 
 
 def _cfg(file_cfg: Dict, env_key: str, file_key: str, default: str) -> str:
+    """按“环境变量 > 配置文件 > 默认值”读取配置项。"""
     # 优先级：环境变量 > 公共配置文件 > 默认值
     return os.getenv(env_key, str(file_cfg.get(file_key, default))).strip()
 
@@ -63,6 +65,7 @@ app.add_middleware(
 
 
 def transcribe_audio(file_path: str, language: str = None) -> Dict:
+    """调用 Whisper 模型转写本地音频文件。"""
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"音频文件不存在: {file_path}")
 
@@ -76,6 +79,7 @@ def transcribe_audio(file_path: str, language: str = None) -> Dict:
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...), language: str = None):
+    """接收上传音频并返回分段转写结果。"""
     if not file.filename.lower().endswith((".wav", ".mp3", ".m4a", ".flac")):
         raise HTTPException(status_code=400, detail="不支持的音频格式")
 

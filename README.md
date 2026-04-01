@@ -1,195 +1,196 @@
 # AI 语音助手项目
 
-一个基于本地部署的 AI 语音助手，支持语音输入、语音识别(STT)和 AI 对话(LLM)。
+本项目提供本地可运行的语音助手链路：
+
+- `STT`：本地 Whisper 语音识别
+- `LLM`：本地 Qwen（`llama.cpp`）对话
+- `TTS`：阿里云 DashScope `cosyvoice-v3-flash` 语音合成
+- `Gateway`：统一编排与对外 API
+- `Web`：简单联调页面（健康检查 + 文本对话 + TTS 播放）
 
 ---
 
-## 项目结构
+## 目录结构（当前）
 
-```
+```text
 ai-voice-assistant/
-├── index.html              # 前端 Demo 页面
-├── ai/                     # AI 服务端代码
-│   ├── requirements.txt    # Python 依赖清单
-│   ├── gateway/            # API 网关
-│   │   └── main.py         # 网关服务入口
-│   ├── llm/                # 大语言模型服务
-│   │   └── qwen_service.py # Qwen LLM 服务（基于 llama.cpp）
-│   ├── stt/                # 语音识别服务
-│   │   ├── whisper_service.py  # Whisper STT 服务
-│   │   └── test/           # 测试文件
-│   │       ├── stt_test.py     # STT 测试脚本
-│   │       ├── base.pt         # 测试模型
-│   │       └── clone.wav       # 测试音频
-│   ├── tts/                # 语音合成服务（预留）
-│   │   └── tts_service.py      # 空文件
-│   └── venv/               # Python 虚拟环境
-├── apps/                   # 应用层
-│   └── web/                # Web 应用（预留）
-├── deploy/                 # 部署脚本（预留）
-└── models/                 # AI 模型文件
-    ├── faster-base/        # Whisper 语音模型
-    │   ├── config.json
-    │   ├── model.bin
-    │   ├── tokenizer.json
-    │   ├── vocabulary.txt
-    │   └── README.md
-    └── llama.cpp          # llama.cpp 编译产物
+├── ai/
+│   ├── config.json                 # 公共配置（gateway/tts/llm/stt）
+│   ├── start.py                    # 一键启动脚本（支持 --all / --tts 等）
+│   ├── gateway/
+│   │   ├── main.py                 # 网关服务（8010）
+│   │   └── env-gateway.yaml
+│   ├── tts/
+│   │   ├── cosyvoice_service.py    # 阿里云 CosyVoice TTS（8030）
+│   │   └── env-tts.yaml
+│   ├── llm/
+│   │   ├── qwen_service.py         # 本地 Qwen 服务（8041，对内 llama-server:8040）
+│   │   └── env-llm.yaml
+│   └── stt/
+│       ├── whisper_service.py      # 本地 Whisper STT（8000）
+│       └── env-stt.yaml
+├── apps/
+│   └── web/
+│       └── index.html              # 测试页面
+└── models/                         # 本地模型与 llama.cpp
 ```
 
 ---
 
-## 目录/文件详解
+## 架构与调用链路
 
-### 根目录
+```text
+Web/客户端
+   ↓
+Gateway (8010)
+   ├─ /chat/text -> LLM (8041)
+   ├─ /tts/synthesize/proxy -> TTS (8030)
+   └─ /chat/tts -> 先 LLM 再 TTS
 
-| 文件/目录 | 说明 |
-|-----------|------|
-| `index.html` | 前端 Demo 页面，提供语音/文字输入界面，与后端 API 交互 |
-
-### `ai/` - AI 服务端
-
-AI 服务的核心代码目录，包含各个 AI 能力模块。
-
-| 文件/目录 | 说明 |
-|-----------|------|
-| `requirements.txt` | Python 依赖清单，包含 fastapi、faster-whisper、requests 等 |
-| `venv/` | Python 虚拟环境，包含所有安装的依赖包 |
-
-#### `ai/gateway/` - API 网关
-
-| 文件 | 说明 |
-|------|------|
-| `main.py` | 网关服务入口，用于统一管理和路由各 AI 服务 |
-
-#### `ai/llm/` - 大语言模型服务
-
-| 文件 | 说明 |
-|------|------|
-| `qwen_service.py` | Qwen LLM 服务，基于 llama.cpp 提供本地 AI 对话能力，端口 8001 |
-
-#### `ai/stt/` - 语音识别服务
-
-| 文件/目录 | 说明 |
-|-----------|------|
-| `whisper_service.py` | Whisper 语音识别服务，基于 faster-whisper，端口 8000 |
-| `test/` | 测试相关文件 |
-| `test/stt_test.py` | STT 功能测试脚本 |
-| `test/base.pt` | 测试用模型文件 |
-| `test/clone.wav` | 测试用音频文件 |
-
-#### `ai/tts/` - 语音合成服务
-
-| 文件 | 说明 |
-|------|------|
-| `tts_service.py` | 预留文件，暂未实现语音合成功能 |
-
-### `apps/` - 应用层
-
-| 目录 | 说明 |
-|------|------|
-| `web/` | Web 应用目录，预留用于存放完整前端应用 |
-
-### `deploy/` - 部署脚本
-
-部署相关脚本目录，目前为空，可用于存放 Docker、CI/CD 等部署配置。
-
-### `models/` - AI 模型文件
-
-存放本地运行的 AI 模型。
-
-| 目录 | 说明 |
-|------|------|
-| `faster-base/` | Whisper faster-base 模型文件（约 138MB），用于语音识别 |
-| `llama.cpp/` | llama.cpp 编译产物，用于运行 Qwen 大语言模型 |
+STT (8000) 可单独调用 /transcribe
+```
 
 ---
 
-## 服务端口说明
+## 公共配置
 
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| STT 服务 | 8000 | 语音识别，接口 `/transcribe` |
-| LLM 服务 | 8001 | AI 对话，接口 `/llm/predict` |
+统一配置文件：`ai/config.json`
+
+配置优先级：
+
+1. 环境变量
+2. `ai/config.json`
+3. 代码默认值
+
+### 关键配置项
+
+- `gateway`
+  - `host` / `port`
+  - `llm_url` / `tts_url` / `stt_url`
+- `tts`
+  - `region`：`cn-beijing` / 新加坡等
+  - `model`：默认 `cosyvoice-v3-flash`
+  - `voice`：默认音色
+  - `dashscope_api_key`：可填，但更推荐环境变量
+- `llm`
+  - `llama_cpp_bin` / `model_path`
+  - `llama_host` / `llama_port`
+  - `api_host` / `api_port`
+  - 推理参数：`n_gpu_layers`、`ctx_size`、`temperature`、`repeat_penalty`
+- `stt`
+  - `model_path` / `device` / `api_host` / `api_port`
+
+> 注意：`config.json` 必须是标准 JSON，不要使用 `//` 注释。
 
 ---
 
-## 快速启动
+## 环境准备
 
-### 1. 安装依赖
+建议分别准备 4 个 conda 环境并按 yaml 更新：
 
 ```bash
-cd ai
-pip install -r requirements.txt
+conda env update -n env-gateway -f ai/gateway/env-gateway.yaml --prune
+conda env update -n env-tts -f ai/tts/env-tts.yaml --prune
+conda env update -n env-llm -f ai/llm/env-llm.yaml --prune
+conda env update -n env-stt -f ai/stt/env-stt.yaml --prune
 ```
 
-### 2. 启动 STT 服务
+TTS 必需配置（推荐环境变量）：
 
 ```bash
-python stt/whisper_service.py
+export DASHSCOPE_API_KEY=你的阿里云DashScopeKey
+# 可选
+export DASHSCOPE_REGION=cn-beijing
 ```
-
-### 3. 启动 LLM 服务
-
-```bash
-python llm/qwen_service.py
-```
-
-### 4. 打开前端
-
-直接用浏览器打开 `index.html` 即可使用。
 
 ---
 
-## 依赖清单（requirements.txt）
+## 启动方式
 
-| 库 | 作用 |
-|----|------|
-| fastapi | 高性能异步 Web 框架 |
-| uvicorn | ASGI 服务器 |
-| python-multipart | 处理文件上传 |
-| pydantic | 数据验证 |
-| faster-whisper | 语音识别引擎 |
-| requests | HTTP 请求库 |
+### 一键启动全部服务
+
+```bash
+python ai/start.py --all
+```
+
+### 按需启动
+
+```bash
+python ai/start.py --llm --tts --gateway
+# 或单独
+python ai/start.py --stt
+```
 
 ---
 
-## 工作流程
+## 接口说明
 
+### Gateway（`http://127.0.0.1:8010`）
+
+- `GET /health`：查看网关及下游服务健康状态
+- `POST /chat/text`：仅文本对话（调用 LLM）
+- `POST /tts/synthesize/proxy`：仅 TTS 代理
+- `POST /chat/tts`：文本对话 + 语音合成
+
+`/chat/tts` 请求示例：
+
+```json
+{
+  "messages": [{"role": "user", "content": "你现在知道你是谁嘛？"}],
+  "tts_model": "cosyvoice-v3-flash",
+  "tts_voice": "longanyang"
+}
 ```
-用户语音输入  →  STT服务(8000)  →  文字
-                                    ↓
-用户文字输入  ←  LLM服务(8001)  ←  AI回复
-```
 
-1. 用户在 `index.html` 上传音频或输入文字
-2. 如有音频，调用 STT 服务（端口 8000）转为文字
-3. 将文字发送到 LLM 服务（端口 8001）获取 AI 回复
-4. 显示对话结果
+### TTS（`http://127.0.0.1:8030`）
 
+- `GET /health`
+- `POST /tts/synthesize`
+- `POST /synthesize`（别名）
 
+返回 `audio_base64`，可直接前端播放（`audio/mpeg`）。
 
-            ┌───────────────┐
-            │   前端 Web/小程序  │
-            └───────┬───────┘
-                    │ HTTP 请求/音频/文本
-                    ▼
-            ┌───────────────┐
-            │   Gateway 服务  │
-            │  (env_gateway) │
-            │ FastAPI 路由   │
-            └───────┬───────┘
-    ┌──────────────┼───────────────┐
-    │              │               │
-    ▼              ▼               ▼
-┌───────────┐  ┌───────────┐   ┌────────────┐
-│  LLM 服务 │  │  STT 服务 │   │  TTS 服务  │
-│ env_llm   │  │ env_stt   │   │ env_tts    │
-│ Qwen      │  │ Whisper   │   │ CosyVoice │
-│ FastAPI   │  │ FastAPI   │   │ FastAPI   │
-└─────┬─────┘  └─────┬─────┘   └─────┬─────┘
-      │              │               │
-      │ JSON         │ JSON/音频文件  │ JSON/音频文件
-      │              │               │
-      ▼              ▼               ▼
-   响应结果        转文字结果        音频文件/链接
+### LLM（`http://127.0.0.1:8041`）
+
+- `POST /llm/predict`
+
+### STT（`http://127.0.0.1:8000`）
+
+- `POST /transcribe`（上传音频文件）
+
+---
+
+## 前端联调页面
+
+直接打开：
+
+`apps/web/index.html`
+
+页面已支持：
+
+- 直接测试 TTS
+- 聊天 + TTS（走网关）
+- 服务状态红绿灯（Gateway/LLM/TTS/STT）
+
+---
+
+## 常见问题
+
+1. `TTS 500` 且提示缺少 key
+   - 确认 `DASHSCOPE_API_KEY` 已在当前 shell 导出
+   - 访问 `http://127.0.0.1:8030/health` 看 `configured` 是否为 `true`
+
+2. `chat/tts` 报 LLM 连接失败
+   - 检查 LLM 是否运行在 `8041`
+   - 检查 `ai/config.json` 的 `gateway.llm_url`
+
+3. 改了 `config.json` 不生效
+   - TTS 为请求级读取，通常即时生效
+   - 其他服务建议重启对应进程
+
+---
+
+## 备注
+
+- 本项目已切换为公共配置模式（`ai/config.json`），不再建议为每个服务维护单独业务配置文件。
+- 密钥建议使用环境变量注入，不建议写入仓库。

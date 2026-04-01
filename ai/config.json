@@ -17,8 +17,8 @@
   },
   "llm": {
     "_comment": "本地 LLM 配置：llama-server 启动参数与对外 API 端口",
-    "llama_cpp_bin": "/models/llama.cpp/build/bin/llama-server",
-    "model_path": "/models/llm_models/Qwen2.5-14B-Instruct-IQ4_XS.gguf",
+    "llama_cpp_bin": "models/llama.cpp/build/bin/llama-server",
+    "model_path": "models/llm_models/Qwen2.5-14B-Instruct-IQ4_XS.gguf",
     "llama_host": "127.0.0.1",
     "llama_port": 8040,
     "api_host": "0.0.0.0",
@@ -30,7 +30,7 @@
   },
   "stt": {
     "_comment": "本地 STT 配置：Whisper 模型路径、设备与接口端口",
-    "model_path": "/models/faster-base",
+    "model_path": "models/faster-base",
     "device": "cpu",
     "api_host": "0.0.0.0",
     "api_port": 8000
