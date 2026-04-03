@@ -1,4 +1,3 @@
-import json
 import os
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -9,28 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-
-CONFIG_PATH = os.getenv(
-    "AI_CONFIG_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "config.json"),
-)
-
-
-def _load_file_config() -> Dict[str, Any]:
-    """读取公共配置文件并返回字典。"""
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
-    # 优先级：环境变量 > 公共配置文件 > 默认值
-    return os.getenv(env_key, str(file_cfg.get(file_key, default))).strip()
+from ai.utils.config_helper import get_config_path, load_config, get_config_value
 
 
 def _base_url(raw_url: str) -> str:
@@ -38,8 +16,14 @@ def _base_url(raw_url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else raw_url
 
 
-_gateway_cfg = _load_file_config().get("gateway")
-_gateway_cfg = _gateway_cfg if isinstance(_gateway_cfg, dict) else {}
+CONFIG_PATH = get_config_path()
+_gateway_cfg = load_config(CONFIG_PATH).get("gateway") or {}
+
+
+def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
+    """按"环境变量 > 配置文件 > 默认值"读取配置项。"""
+    return get_config_value(file_cfg, env_key, file_key, default)
+
 
 STT_URL = _cfg(_gateway_cfg, "STT_URL", "stt_url", "http://127.0.0.1:8000/transcribe")
 LLM_URL = _cfg(_gateway_cfg, "LLM_URL", "llm_url", "http://127.0.0.1:8041/llm/predict")
@@ -134,7 +118,7 @@ def chat_text(req: ChatRequest) -> Dict[str, Any]:
         llm_res = requests.post(LLM_URL, json=llm_payload, timeout=120)
         llm_data = llm_res.json()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"调用 LLM 服务失败: {e}")
+        raise HTTPException(status_code=500, detail=f"调用 LLM 服务失败：{e}")
 
     if llm_res.status_code != 200:
         raise HTTPException(status_code=llm_res.status_code, detail=llm_data)
@@ -160,7 +144,7 @@ def tts_proxy(req: TTSProxyRequest) -> Dict[str, Any]:
         tts_res = requests.post(TTS_URL, json=payload, timeout=120)
         tts_data = tts_res.json()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"调用 TTS 服务失败: {e}")
+        raise HTTPException(status_code=500, detail=f"调用 TTS 服务失败：{e}")
 
     if tts_res.status_code != 200:
         raise HTTPException(status_code=tts_res.status_code, detail=tts_data)
@@ -171,7 +155,6 @@ def tts_proxy(req: TTSProxyRequest) -> Dict[str, Any]:
 @app.post("/chat/tts")
 def chat_tts(req: ChatRequest) -> Dict[str, Any]:
     """执行完整链路：LLM 生成回复文本，再转 TTS 音频。"""
-    # 链路：先调用 LLM 生成文本，再调用 TTS 合成语音
     chat_result = chat_text(req)
     reply_text = chat_result["reply_text"]
 
@@ -184,7 +167,7 @@ def chat_tts(req: ChatRequest) -> Dict[str, Any]:
         tts_res = requests.post(TTS_URL, json=tts_payload, timeout=120)
         tts_data = tts_res.json()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"调用 TTS 服务失败: {e}")
+        raise HTTPException(status_code=500, detail=f"调用 TTS 服务失败：{e}")
 
     if tts_res.status_code != 200:
         raise HTTPException(status_code=tts_res.status_code, detail=tts_data)

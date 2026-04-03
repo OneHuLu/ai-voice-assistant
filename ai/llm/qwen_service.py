@@ -1,4 +1,3 @@
-import json
 import os
 import subprocess
 import time
@@ -10,41 +9,25 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-
-CONFIG_PATH = os.getenv(
-    "AI_CONFIG_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "config.json"),
+from ai.utils.config_helper import (
+    get_config_path,
+    load_config,
+    get_config_value,
+    resolve_path,
+    get_project_root,
 )
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
-def _load_file_config() -> Dict[str, Any]:
-    """读取公共配置文件并返回字典。"""
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+CONFIG_PATH = get_config_path()
+PROJECT_ROOT = get_project_root(__file__)
 
 
 def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
-    """按“环境变量 > 配置文件 > 默认值”读取配置项。"""
-    # 优先级：环境变量 > 公共配置文件 > 默认值
-    return os.getenv(env_key, str(file_cfg.get(file_key, default))).strip()
+    """按"环境变量 > 配置文件 > 默认值"读取配置项。"""
+    return get_config_value(file_cfg, env_key, file_key, default)
 
 
-def _resolve_path(path_value: str) -> str:
-    """将相对路径转换为项目根目录下的绝对路径。"""
-    p = (path_value or "").strip()
-    if not p:
-        return p
-    return p if os.path.isabs(p) else os.path.abspath(os.path.join(PROJECT_ROOT, p))
-
-
-_llm_cfg = _load_file_config().get("llm")
+_llm_cfg = load_config(CONFIG_PATH).get("llm")
 _llm_cfg = _llm_cfg if isinstance(_llm_cfg, dict) else {}
 
 # 读取参数信息
@@ -60,13 +43,13 @@ MODEL_PATH = _cfg(
     "model_path",
     "models/llm_models/Qwen2.5-14B-Instruct-IQ4_XS.gguf",
 )
-LLAMA_CPP_BIN = _resolve_path(LLAMA_CPP_BIN)
-MODEL_PATH = _resolve_path(MODEL_PATH)
+LLAMA_CPP_BIN = resolve_path(LLAMA_CPP_BIN, PROJECT_ROOT)
+MODEL_PATH = resolve_path(MODEL_PATH, PROJECT_ROOT)
 
 if not os.path.exists(LLAMA_CPP_BIN):
-    raise FileNotFoundError(f"llama-server 不存在: {LLAMA_CPP_BIN}")
+    raise FileNotFoundError(f"llama-server 不存在：{LLAMA_CPP_BIN}")
 if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(f"LLM 模型不存在: {MODEL_PATH}")
+    raise FileNotFoundError(f"LLM 模型不存在：{MODEL_PATH}")
 
 LLAMA_HOST = _cfg(_llm_cfg, "LLAMA_HOST", "llama_host", "127.0.0.1")
 LLAMA_PORT = int(_cfg(_llm_cfg, "LLAMA_PORT", "llama_port", "8040"))

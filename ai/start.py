@@ -10,34 +10,41 @@ import json
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LOCAL_ENV_PATH = os.path.join(PROJECT_ROOT, ".env.local")
 
+# 默认端口配置（与 config.json 保持一致）
+DEFAULT_PORTS = {
+    "gateway": 8010,
+    "stt": 8000,      # 与 config.json stt.api_port 一致
+    "tts": 8030,      # 与 config.json tts.api_port 一致
+    "llm": 8040,      # 与 config.json llm.api_port 一致（llama-server 用 8040）
+}
+
 SERVICES = {
     "gateway": {
         "env": "env-gateway",
         "yaml": "ai/gateway/env-gateway.yaml",
         "script": "ai/gateway/main.py",
-        "port": 8010
+        "port": DEFAULT_PORTS["gateway"]
     },
     "stt": {
         "env": "env-stt",
         "yaml": "ai/stt/env-stt.yaml",
         "script": "ai/stt/whisper_service.py",
-        "port": 8000
+        "port": DEFAULT_PORTS["stt"]
     },
     "tts": {
         "env": "env-tts",
         "yaml": "ai/tts/env-tts.yaml",
         "script": "ai/tts/cosyvoice_service.py",
-        "port": 8030
+        "port": DEFAULT_PORTS["tts"]
     },
     "llm": {
         "env": "env-llm",
         "yaml": "ai/llm/env-llm.yaml",
         "script": "ai/llm/qwen_service.py",
-        "port": 8041
+        "port": DEFAULT_PORTS["llm"]
     }
 }
 
-# 公共配置文件路径（可通过 AI_CONFIG_PATH 覆盖）
 CONFIG_PATH = os.getenv("AI_CONFIG_PATH", os.path.join("ai", "config.json"))
 
 
@@ -58,10 +65,10 @@ def _apply_ports_from_config():
     # 启动器端口也走统一配置，确保 start.py 与各服务读取结果一致
     config = _load_file_config()
     service_port_map = {
-        "gateway": ("gateway", "port", 8010),
-        "stt": ("stt", "api_port", 8000),
-        "tts": ("tts", "api_port", 8030),
-        "llm": ("llm", "api_port", 8041),
+        "gateway": ("gateway", "port", DEFAULT_PORTS["gateway"]),
+        "stt": ("stt", "api_port", DEFAULT_PORTS["stt"]),
+        "tts": ("tts", "api_port", DEFAULT_PORTS["tts"]),
+        "llm": ("llm", "api_port", DEFAULT_PORTS["llm"]),
     }
     for service_name, (section, key, fallback) in service_port_map.items():
         sec = config.get(section) if isinstance(config.get(section), dict) else {}

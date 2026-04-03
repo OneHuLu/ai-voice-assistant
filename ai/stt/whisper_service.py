@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 import tempfile
@@ -9,46 +8,25 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from faster_whisper import WhisperModel
 
-
-CONFIG_PATH = os.getenv(
-    "AI_CONFIG_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "config.json"),
-)
+from ai.utils.config_helper import get_config_path, load_config, get_config_value
 
 
-def _load_file_config() -> Dict:
-    """读取公共配置文件并返回字典。"""
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+CONFIG_PATH = get_config_path()
+_stt_cfg = load_config(CONFIG_PATH).get("stt") or {}
 
 
 def _cfg(file_cfg: Dict, env_key: str, file_key: str, default: str) -> str:
-    """按“环境变量 > 配置文件 > 默认值”读取配置项。"""
-    # 优先级：环境变量 > 公共配置文件 > 默认值
-    return os.getenv(env_key, str(file_cfg.get(file_key, default))).strip()
+    """按"环境变量 > 配置文件 > 默认值"读取配置项。"""
+    return get_config_value(file_cfg, env_key, file_key, default)
 
 
-_stt_cfg = _load_file_config().get("stt")
-_stt_cfg = _stt_cfg if isinstance(_stt_cfg, dict) else {}
-
-MODEL_PATH = _cfg(
-    _stt_cfg,
-    "STT_MODEL_PATH",
-    "model_path",
-    "/models/faster-base",
-)
+MODEL_PATH = _cfg(_stt_cfg, "STT_MODEL_PATH", "model_path", "models/faster-base")
 DEVICE = _cfg(_stt_cfg, "STT_DEVICE", "device", "cpu")
 API_HOST = _cfg(_stt_cfg, "STT_API_HOST", "api_host", "0.0.0.0")
 API_PORT = int(_cfg(_stt_cfg, "STT_API_PORT", "api_port", "8000"))
 
 if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(f"模型路径不存在: {MODEL_PATH}")
+    raise FileNotFoundError(f"模型路径不存在：{MODEL_PATH}")
 
 print("正在加载 Whisper 模型，请稍等...")
 model = WhisperModel(MODEL_PATH, device=DEVICE)
@@ -67,7 +45,7 @@ app.add_middleware(
 def transcribe_audio(file_path: str, language: str = None) -> Dict:
     """调用 Whisper 模型转写本地音频文件。"""
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"音频文件不存在: {file_path}")
+        raise FileNotFoundError(f"音频文件不存在：{file_path}")
 
     segments, info = model.transcribe(file_path, language=language)
     return {

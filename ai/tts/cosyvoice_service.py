@@ -1,5 +1,4 @@
 import base64
-import json
 import os
 from typing import Any, Dict, Optional
 
@@ -10,6 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from ai.utils.config_helper import get_config_path, load_config, get_config_value
+
 
 def _resolve_ws_url(region: str) -> str:
     """根据区域选择 DashScope WebSocket 接入地址。"""
@@ -19,38 +20,19 @@ def _resolve_ws_url(region: str) -> str:
     return "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 
 
-CONFIG_PATH = os.getenv(
-    "AI_CONFIG_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "config.json"),
-)
-
-
-def _load_file_config() -> Dict[str, Any]:
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
-    # 优先级：环境变量 > 公共配置文件 > 默认值
-    return os.getenv(env_key, str(file_cfg.get(file_key, default))).strip()
+CONFIG_PATH = get_config_path()
 
 
 def _load_runtime_config():
     """读取 TTS 运行配置（key、区域、默认模型与音色）。"""
     # 每次请求动态读取，避免改配置后必须重启服务
-    root_cfg = _load_file_config()
+    root_cfg = load_config(CONFIG_PATH)
     tts_cfg = root_cfg.get("tts") if isinstance(root_cfg.get("tts"), dict) else {}
 
-    api_key = _cfg(tts_cfg, "DASHSCOPE_API_KEY", "dashscope_api_key", "")
-    region = _cfg(tts_cfg, "DASHSCOPE_REGION", "region", "cn-beijing")
-    default_model = _cfg(tts_cfg, "COSYVOICE_MODEL", "model", "cosyvoice-v3-flash")
-    default_voice = _cfg(tts_cfg, "COSYVOICE_VOICE", "voice", "longanyang")
+    api_key = get_config_value(tts_cfg, "DASHSCOPE_API_KEY", "dashscope_api_key", "")
+    region = get_config_value(tts_cfg, "DASHSCOPE_REGION", "region", "cn-beijing")
+    default_model = get_config_value(tts_cfg, "COSYVOICE_MODEL", "model", "cosyvoice-v3-flash")
+    default_voice = get_config_value(tts_cfg, "COSYVOICE_VOICE", "voice", "longanyang")
     ws_url = _resolve_ws_url(region)
 
     return api_key, region, ws_url, default_model, default_voice
@@ -122,7 +104,7 @@ def synthesize(req: TTSRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"调用阿里云 CosyVoice 失败: {e}")
+        raise HTTPException(status_code=500, detail=f"调用阿里云 CosyVoice 失败：{e}")
 
 
 if __name__ == "__main__":
