@@ -8,3 +8,4 @@ __pycache__/
 
 index.html
 .env.local
+.vscode
