@@ -4,7 +4,7 @@
 
 - `STT`：本地 Whisper 语音识别
 - `LLM`：本地 Qwen（`llama.cpp`）对话
-- `TTS`：阿里云 DashScope `cosyvoice-v3-flash` 语音合成
+- `TTS`：阿里云 DashScope `cosyvoice-v1` 语音合成
 - `Gateway`：统一编排与对外 API
 - `Web`：简单联调页面（健康检查 + 文本对话 + TTS 播放）
 
@@ -69,8 +69,8 @@ STT (8000) 可单独调用 /transcribe
   - `llm_url` / `tts_url` / `stt_url`
 - `tts`
   - `region`：`cn-beijing` / 新加坡等
-  - `model`：默认 `cosyvoice-v3-flash`
-  - `voice`：默认音色
+  - `model`：默认 `cosyvoice-v1`
+  - `voice`：默认 `longyuan`
   - `dashscope_api_key`：可填，但更推荐环境变量
 - `llm`
   - `llama_cpp_bin` / `model_path`
@@ -137,8 +137,8 @@ python ai/start.py --stt
 ```json
 {
   "messages": [{"role": "user", "content": "你现在知道你是谁嘛？"}],
-  "tts_model": "cosyvoice-v3-flash",
-  "tts_voice": "longanyang"
+  "tts_model": "cosyvoice-v1",
+  "tts_voice": "longyuan"
 }
 ```
 

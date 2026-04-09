@@ -1,6 +1,4 @@
 import os
-import subprocess
-import time
 from typing import Any, Dict
 
 import requests
@@ -13,13 +11,11 @@ from ai.utils.config_helper import (
     get_config_path,
     load_config,
     get_config_value,
-    resolve_path,
-    get_project_root,
 )
 
 
 CONFIG_PATH = get_config_path()
-PROJECT_ROOT = get_project_root(__file__)
+DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
 
 
 def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
@@ -27,70 +23,17 @@ def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) ->
     return get_config_value(file_cfg, env_key, file_key, default)
 
 
-_llm_cfg = load_config(CONFIG_PATH).get("llm")
+_llm_cfg = load_config(CONFIG_PATH).get("llm") or {}
 _llm_cfg = _llm_cfg if isinstance(_llm_cfg, dict) else {}
+_root_cfg = load_config(CONFIG_PATH)
 
-# 读取参数信息
-LLAMA_CPP_BIN = _cfg(
-    _llm_cfg,
-    "LLAMA_CPP_BIN",
-    "llama_cpp_bin",
-    "models/llama.cpp/build/bin/llama-server",
-)
-MODEL_PATH = _cfg(
-    _llm_cfg,
-    "LLM_MODEL_PATH",
-    "model_path",
-    "models/llm_models/Qwen2.5-14B-Instruct-IQ4_XS.gguf",
-)
-LLAMA_CPP_BIN = resolve_path(LLAMA_CPP_BIN, PROJECT_ROOT)
-MODEL_PATH = resolve_path(MODEL_PATH, PROJECT_ROOT)
-
-if not os.path.exists(LLAMA_CPP_BIN):
-    raise FileNotFoundError(f"llama-server 不存在：{LLAMA_CPP_BIN}")
-if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(f"LLM 模型不存在：{MODEL_PATH}")
-
-LLAMA_HOST = _cfg(_llm_cfg, "LLAMA_HOST", "llama_host", "127.0.0.1")
-LLAMA_PORT = int(_cfg(_llm_cfg, "LLAMA_PORT", "llama_port", "8040"))
-N_GPU_LAYERS = int(_cfg(_llm_cfg, "LLM_N_GPU_LAYERS", "n_gpu_layers", "99"))
-CTX_SIZE = int(_cfg(_llm_cfg, "LLM_CTX_SIZE", "ctx_size", "8192"))
-TEMP = float(_cfg(_llm_cfg, "LLM_TEMP", "temperature", "0.9"))
-REPEAT_PENALTY = float(_cfg(_llm_cfg, "LLM_REPEAT_PENALTY", "repeat_penalty", "1.05"))
+DASHSCOPE_API_KEY = _cfg(_root_cfg.get("tts") or {}, "DASHSCOPE_API_KEY", "dashscope_api_key", "")
+DASHSCOPE_MODEL = _cfg(_llm_cfg, "DASHSCOPE_MODEL", "dashscope_model", "qwen-max-latest")
 
 FASTAPI_HOST = _cfg(_llm_cfg, "LLM_API_HOST", "api_host", "0.0.0.0")
 FASTAPI_PORT = int(_cfg(_llm_cfg, "LLM_API_PORT", "api_port", "8041"))
 
-# llama 服务启动
-def start_llama_server():
-    """启动本地 llama-server 子进程。"""
-    cmd = [
-        LLAMA_CPP_BIN,
-        "-m",
-        MODEL_PATH,
-        "--host",
-        LLAMA_HOST,
-        "--port",
-        str(LLAMA_PORT),
-        "--n-gpu-layers",
-        str(N_GPU_LAYERS),
-        "--ctx-size",
-        str(CTX_SIZE),
-        "--temp",
-        str(TEMP),
-        "--repeat-penalty",
-        str(REPEAT_PENALTY),
-        "--chat-template",
-        "qwen",
-    ]
-    print("Starting llama-server:", " ".join(cmd))
-    return subprocess.Popen(cmd)
-
-
-llama_process = start_llama_server()
-time.sleep(10)
-
-app = FastAPI(title="Local Qwen LLM Proxy")
+app = FastAPI(title="DashScope LLM Proxy")
 
 app.add_middleware(
     CORSMiddleware,
@@ -109,38 +52,64 @@ class LLMRequest(BaseModel):
     top_k: int = 40
 
 
-LLAMA_SERVER_URL = f"http://{LLAMA_HOST}:{LLAMA_PORT}/v1/chat/completions"
-
-
 @app.post("/llm/predict")
 async def predict(request: LLMRequest):
-    """代理请求到 llama-server 的 chat/completions 接口。"""
+    """调用阿里百炼（DashScope）API 生成回复。"""
     try:
+        if not DASHSCOPE_API_KEY:
+            raise HTTPException(status_code=500, detail="DASHSCOPE_API_KEY 未配置")
+
+        # 构建消息
         if not request.messages:
-            messages = [{"role": "user", "content": request.prompt}]
-            if request.prompt and not any(msg.get("role") == "system" for msg in messages):
-                messages.insert(0, {"role": "system", "content": "You are Qwen, a helpful assistant."})
+            messages = [{"role": "user", "content": request.prompt.strip()}]
         else:
             messages = request.messages
 
+        if not any(msg.get("role") == "system" for msg in messages):
+            messages.insert(0, {"role": "system", "content": "You are Qwen, a helpful assistant."})
+
+        # 调用 DashScope API
         payload = {
-            "messages": messages,
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "top_k": request.top_k,
-            "stream": False,
+            "model": DASHSCOPE_MODEL,
+            "input": {"messages": messages},
+            "parameters": {
+                "temperature": request.temperature,
+                "max_tokens": request.max_tokens,
+                "top_k": request.top_k,
+                "result_format": "message",
+            },
         }
-        resp = requests.post(LLAMA_SERVER_URL, json=payload, timeout=60)
+
+        headers = {
+            "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+        resp = requests.post(
+            f"{DASHSCOPE_BASE_URL}/services/aigc/text-generation/generation",
+            headers=headers,
+            json=payload,
+            timeout=60,
+        )
+
         if resp.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"llama-server error: {resp.text}")
-        return resp.json()
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+        data = resp.json()
+        return {
+            "choices": [
+                {
+                    "message": data["output"]["choices"][0]["message"],
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"DashScope 调用失败: {str(e)}")
 
 
 if __name__ == "__main__":
-    try:
-        uvicorn.run(app, host=FASTAPI_HOST, port=FASTAPI_PORT)
-    finally:
-        print("Stopping llama-server...")
-        llama_process.terminate()
+    uvicorn.run(app, host=FASTAPI_HOST, port=FASTAPI_PORT)

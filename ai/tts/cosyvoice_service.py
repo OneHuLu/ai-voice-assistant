@@ -31,8 +31,8 @@ def _load_runtime_config():
 
     api_key = get_config_value(tts_cfg, "DASHSCOPE_API_KEY", "dashscope_api_key", "")
     region = get_config_value(tts_cfg, "DASHSCOPE_REGION", "region", "cn-beijing")
-    default_model = get_config_value(tts_cfg, "COSYVOICE_MODEL", "model", "cosyvoice-v3-flash")
-    default_voice = get_config_value(tts_cfg, "COSYVOICE_VOICE", "voice", "longanyang")
+    default_model = get_config_value(tts_cfg, "COSYVOICE_MODEL", "model", "cosyvoice-v1")
+    default_voice = get_config_value(tts_cfg, "COSYVOICE_VOICE", "voice", "longyuan")
     ws_url = _resolve_ws_url(region)
 
     return api_key, region, ws_url, default_model, default_voice

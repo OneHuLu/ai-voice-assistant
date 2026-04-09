@@ -9,5 +9,3 @@ dependencies:
   - requests
   - numpy
   - pip
-  - pip:
-      - llama-cpp-python==0.2.90

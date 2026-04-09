@@ -15,7 +15,7 @@ DEFAULT_PORTS = {
     "gateway": 8010,
     "stt": 8000,      # 与 config.json stt.api_port 一致
     "tts": 8030,      # 与 config.json tts.api_port 一致
-    "llm": 8040,      # 与 config.json llm.api_port 一致（llama-server 用 8040）
+    "llm": 8041,      # 与 config.json llm.api_port 一致
 }
 
 SERVICES = {
@@ -141,11 +141,14 @@ def start_service(name):
 
     print(f"🚀 启动 {name}（env={config['env']}）...")
 
+    env = os.environ.copy()
+    env['PYTHONPATH'] = PROJECT_ROOT
     p = subprocess.Popen(
         [
             "conda", "run", "--no-capture-output", "-n", config["env"],
             "python", "-u", config["script"]
         ],
+        env=env,
         stdout=sys.stdout,
         stderr=sys.stderr
     )
