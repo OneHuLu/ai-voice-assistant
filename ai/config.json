@@ -1,7 +1,9 @@
 {
   "_comment": "公共配置：优先级为 环境变量 > 本文件 > 代码默认值。请勿使用 // 注释，保持标准 JSON。",
+  "dashscope_api_key": "",
+  "_api_key_comment": "阿里云 DashScope API Key（全局），推荐使用环境变量 DASHSCOPE_API_KEY",
   "gateway": {
-    "_comment": "网关服务配置：聚合 STT/LLM/TTS 并对外提供统一接口",
+    "_comment": "网关服务配置",
     "host": "0.0.0.0",
     "port": 8010,
     "llm_url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation",
@@ -9,20 +11,19 @@
     "stt_url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/speech-recognition/asr"
   },
   "tts": {
-    "_comment": "阿里云 TTS 配置：region/model/voice 为默认值",
+    "_comment": "阿里云 CosyVoice TTS 配置",
     "region": "cn-beijing",
     "model": "cosyvoice-v1",
-    "voice": "longyuan",
-    "dashscope_api_key": ""
+    "voice": "longyuan"
   },
   "llm": {
-    "_comment": "云端 LLM 配置：使用阿里百炼（DashScope）API",
+    "_comment": "阿里云 Qwen LLM 配置",
     "dashscope_model": "qwen-max-latest",
     "api_host": "0.0.0.0",
     "api_port": 8041
   },
   "stt": {
-    "_comment": "云端 STT 配置：使用阿里百炼（DashScope）API",
+    "_comment": "阿里云 Paraformer STT 配置",
     "dashscope_model": "paraformer-v2",
     "api_host": "0.0.0.0",
     "api_port": 8000

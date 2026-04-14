@@ -1,38 +1,40 @@
 # AI 语音助手项目
 
-本项目提供本地可运行的语音助手链路：
+基于阿里云 DashScope API 的语音助手服务：
 
-- `STT`：本地 Whisper 语音识别
-- `LLM`：本地 Qwen（`llama.cpp`）对话
-- `TTS`：阿里云 DashScope `cosyvoice-v1` 语音合成
-- `Gateway`：统一编排与对外 API
-- `Web`：简单联调页面（健康检查 + 文本对话 + TTS 播放）
+- **STT**：阿里云 `paraformer-v2` 语音识别
+- **LLM**：阿里云 `qwen-max-latest` 大模型对话
+- **TTS**：阿里云 `cosyvoice-v1` 语音合成
+- **Gateway**：统一编排与对外 API
+- **Web**：联调测试页面
 
 ---
 
-## 目录结构（当前）
+## 目录结构
 
 ```text
 ai-voice-assistant/
 ├── ai/
-│   ├── config.json                 # 公共配置（gateway/tts/llm/stt）
-│   ├── start.py                    # 一键启动脚本（支持 --all / --tts 等）
+│   ├── config.json                 # 公共配置
+│   ├── start.py                    # 一键启动脚本
+│   ├── utils/
+│   │   └── config_helper.py        # 配置工具模块
 │   ├── gateway/
 │   │   ├── main.py                 # 网关服务（8010）
 │   │   └── env-gateway.yaml
 │   ├── tts/
-│   │   ├── cosyvoice_service.py    # 阿里云 CosyVoice TTS（8030）
+│   │   ├── cosyvoice_service.py    # TTS 服务（8030）
 │   │   └── env-tts.yaml
 │   ├── llm/
-│   │   ├── qwen_service.py         # 本地 Qwen 服务（8041，对内 llama-server:8040）
+│   │   ├── qwen_service.py         # LLM 服务（8041）
 │   │   └── env-llm.yaml
 │   └── stt/
-│       ├── whisper_service.py      # 本地 Whisper STT（8000）
+│       └── whisper_service.py      # STT 服务（保留，可扩展）
 │       └── env-stt.yaml
 ├── apps/
 │   └── web/
 │       └── index.html              # 测试页面
-└── models/                         # 本地模型与 llama.cpp
+└── requirements.txt                 # 公共依赖
 ```
 
 ---
@@ -43,82 +45,66 @@ ai-voice-assistant/
 Web/客户端
    ↓
 Gateway (8010)
-   ├─ /chat/text -> LLM (8041)
-   ├─ /tts/synthesize/proxy -> TTS (8030)
+   ├─ /chat/text -> 云端 LLM (DashScope)
+   ├─ /tts/synthesize/proxy -> 本地 TTS 服务 -> 云端 CosyVoice
+   ├─ /stt/transcribe -> 云端 STT (DashScope)
    └─ /chat/tts -> 先 LLM 再 TTS
-
-STT (8000) 可单独调用 /transcribe
 ```
 
 ---
 
-## 公共配置
+## 配置说明
 
-统一配置文件：`ai/config.json`
+配置文件：`ai/config.json`
 
-配置优先级：
+优先级：**环境变量 > config.json > 代码默认值**
 
-1. 环境变量
-2. `ai/config.json`
-3. 代码默认值
+### 必需配置
 
-### 关键配置项
+```bash
+export DASHSCOPE_API_KEY=你的阿里云DashScopeKey
+```
 
-- `gateway`
-  - `host` / `port`
-  - `llm_url` / `tts_url` / `stt_url`
-- `tts`
-  - `region`：`cn-beijing` / 新加坡等
-  - `model`：默认 `cosyvoice-v1`
-  - `voice`：默认 `longyuan`
-  - `dashscope_api_key`：可填，但更推荐环境变量
-- `llm`
-  - `llama_cpp_bin` / `model_path`
-  - `llama_host` / `llama_port`
-  - `api_host` / `api_port`
-  - 推理参数：`n_gpu_layers`、`ctx_size`、`temperature`、`repeat_penalty`
-- `stt`
-  - `model_path` / `device` / `api_host` / `api_port`
+### 配置项说明
 
-> 注意：`config.json` 必须是标准 JSON，不要使用 `//` 注释。
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `dashscope_api_key` | API Key（推荐用环境变量） | 空 |
+| `gateway.host/port` | 网关地址 | `0.0.0.0:8010` |
+| `tts.region` | 区域 | `cn-beijing` |
+| `tts.model` | TTS 模型 | `cosyvoice-v1` |
+| `tts.voice` | 音色 | `longyuan` |
+| `llm.dashscope_model` | LLM 模型 | `qwen-max-latest` |
+| `stt.dashscope_model` | STT 模型 | `paraformer-v2` |
 
 ---
 
-## 环境准备
+## 快速开始
 
-建议分别准备 4 个 conda 环境并按 yaml 更新：
+### 1. 创建环境
 
 ```bash
 conda env update -n env-gateway -f ai/gateway/env-gateway.yaml --prune
 conda env update -n env-tts -f ai/tts/env-tts.yaml --prune
 conda env update -n env-llm -f ai/llm/env-llm.yaml --prune
-conda env update -n env-stt -f ai/stt/env-stt.yaml --prune
 ```
 
-TTS 必需配置（推荐环境变量）：
+### 2. 配置 API Key
 
 ```bash
-export DASHSCOPE_API_KEY=你的阿里云DashScopeKey
-# 可选
-export DASHSCOPE_REGION=cn-beijing
+export DASHSCOPE_API_KEY=你的Key
 ```
 
----
-
-## 启动方式
-
-### 一键启动全部服务
+### 3. 启动服务
 
 ```bash
 python ai/start.py --all
 ```
 
-### 按需启动
+或按需启动：
 
 ```bash
 python ai/start.py --llm --tts --gateway
-# 或单独
-python ai/start.py --stt
 ```
 
 ---
@@ -127,70 +113,57 @@ python ai/start.py --stt
 
 ### Gateway（`http://127.0.0.1:8010`）
 
-- `GET /health`：查看网关及下游服务健康状态
-- `POST /chat/text`：仅文本对话（调用 LLM）
-- `POST /tts/synthesize/proxy`：仅 TTS 代理
-- `POST /chat/tts`：文本对话 + 语音合成
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/health` | GET | 服务健康状态 |
+| `/chat/text` | POST | 文本对话 |
+| `/chat/tts` | POST | 对话 + 语音合成 |
+| `/tts/synthesize/proxy` | POST | TTS 代理 |
+| `/stt/transcribe` | POST | 语音转文本（上传音频） |
+| `/llm/predict` | POST | 简化版 LLM |
 
-`/chat/tts` 请求示例：
+### `/chat/tts` 示例
 
 ```json
 {
-  "messages": [{"role": "user", "content": "你现在知道你是谁嘛？"}],
+  "messages": [{"role": "user", "content": "你好"}],
   "tts_model": "cosyvoice-v1",
   "tts_voice": "longyuan"
 }
 ```
 
-### TTS（`http://127.0.0.1:8030`）
+### TTS 服务（`http://127.0.0.1:8030`）
 
-- `GET /health`
-- `POST /tts/synthesize`
-- `POST /synthesize`（别名）
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/health` | GET | 服务状态 |
+| `/tts/synthesize` | POST | 文本合成语音 |
 
-返回 `audio_base64`，可直接前端播放（`audio/mpeg`）。
-
-### LLM（`http://127.0.0.1:8041`）
-
-- `POST /llm/predict`
-
-### STT（`http://127.0.0.1:8000`）
-
-- `POST /transcribe`（上传音频文件）
+返回 `audio_base64`，可直接前端播放。
 
 ---
 
-## 前端联调页面
+## 前端测试页
 
-直接打开：
+打开 `apps/web/index.html`，支持：
 
-`apps/web/index.html`
-
-页面已支持：
-
-- 直接测试 TTS
-- 聊天 + TTS（走网关）
-- 服务状态红绿灯（Gateway/LLM/TTS/STT）
+- TTS 测试
+- LLM 对话
+- STT 转写
+- 服务状态监控
 
 ---
 
 ## 常见问题
 
-1. `TTS 500` 且提示缺少 key
-   - 确认 `DASHSCOPE_API_KEY` 已在当前 shell 导出
-   - 访问 `http://127.0.0.1:8030/health` 看 `configured` 是否为 `true`
+1. **TTS 报错缺少 key**
+   - 检查 `DASHSCOPE_API_KEY` 环境变量是否设置
+   - 访问 `http://127.0.0.1:8030/health` 验证
 
-2. `chat/tts` 报 LLM 连接失败
-   - 检查 LLM 是否运行在 `8041`
-   - 检查 `ai/config.json` 的 `gateway.llm_url`
+2. **改了配置不生效**
+   - TTS 每次请求动态读取配置，即时生效
+   - 其他服务需重启
 
-3. 改了 `config.json` 不生效
-   - TTS 为请求级读取，通常即时生效
-   - 其他服务建议重启对应进程
-
----
-
-## 备注
-
-- 本项目已切换为公共配置模式（`ai/config.json`），不再建议为每个服务维护单独业务配置文件。
-- 密钥建议使用环境变量注入，不建议写入仓库。
+3. **服务启动失败**
+   - 确认 conda 环境已创建
+   - 检查依赖是否安装：`pip install -r requirements.txt`

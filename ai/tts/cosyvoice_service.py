@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ai.utils.config_helper import get_config_path, load_config, get_config_value
+from ai.utils.config_helper import get_config_path, load_config, get_config_value, get_dashscope_api_key
 
 
 def _resolve_ws_url(region: str) -> str:
@@ -29,7 +29,8 @@ def _load_runtime_config():
     root_cfg = load_config(CONFIG_PATH)
     tts_cfg = root_cfg.get("tts") if isinstance(root_cfg.get("tts"), dict) else {}
 
-    api_key = get_config_value(tts_cfg, "DASHSCOPE_API_KEY", "dashscope_api_key", "")
+    # 统一从根级别或环境变量读取 DashScope API Key
+    api_key = get_dashscope_api_key(root_cfg)
     region = get_config_value(tts_cfg, "DASHSCOPE_REGION", "region", "cn-beijing")
     default_model = get_config_value(tts_cfg, "COSYVOICE_MODEL", "model", "cosyvoice-v1")
     default_voice = get_config_value(tts_cfg, "COSYVOICE_VOICE", "voice", "longyuan")

@@ -11,6 +11,7 @@ from ai.utils.config_helper import (
     get_config_path,
     load_config,
     get_config_value,
+    get_dashscope_api_key,
 )
 
 
@@ -23,11 +24,12 @@ def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) ->
     return get_config_value(file_cfg, env_key, file_key, default)
 
 
-_llm_cfg = load_config(CONFIG_PATH).get("llm") or {}
-_llm_cfg = _llm_cfg if isinstance(_llm_cfg, dict) else {}
 _root_cfg = load_config(CONFIG_PATH)
+_llm_cfg = _root_cfg.get("llm") or {}
+_llm_cfg = _llm_cfg if isinstance(_llm_cfg, dict) else {}
 
-DASHSCOPE_API_KEY = _cfg(_root_cfg.get("tts") or {}, "DASHSCOPE_API_KEY", "dashscope_api_key", "")
+# 统一从根级别或环境变量读取 DashScope API Key
+DASHSCOPE_API_KEY = get_dashscope_api_key(_root_cfg)
 DASHSCOPE_MODEL = _cfg(_llm_cfg, "DASHSCOPE_MODEL", "dashscope_model", "qwen-max-latest")
 
 FASTAPI_HOST = _cfg(_llm_cfg, "LLM_API_HOST", "api_host", "0.0.0.0")

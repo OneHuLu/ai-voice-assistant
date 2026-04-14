@@ -1,13 +1,78 @@
-models/*
+# 模型文件（大文件不提交）
+models/
+
+# macOS
 .DS_Store
-ai/tts/test
-ai/stt/test
 
+# 测试临时文件
+ai/tts/test/
+ai/stt/test/
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-index.html
+# 虚拟环境
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 日志文件
+*.log
+logs/
+
+# 环境变量（包含密钥）
+.env
 .env.local
-.vscode
-.idea
-.venv
+.env.*.local
+
+# 临时文件
+*.tmp
+*.temp
+temp/
+tmp/
+
+# 音频缓存（TTS 生成的音频）
+*.wav
+*.mp3
+*.m4a
+*.flac
+!ai/stt/test/*.wav
+
+# 构建产物
+*.o
+*.a
+*.dll
+*.dylib
+*.exe
+*.lib
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# pytest
+.pytest_cache/

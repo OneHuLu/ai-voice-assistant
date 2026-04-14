@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>云端 TTS / Chat 测试页</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f6fb;
+      color: #1f2937;
+      padding: 20px;
+    }
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    label { font-size: 13px; color: #4b5563; margin-bottom: 6px; display: block; }
+    input, textarea, button {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-size: 14px;
+      padding: 10px;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    button {
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .log {
+      margin-top: 10px;
+      background: #0f172a;
+      color: #dbeafe;
+      border-radius: 8px;
+      padding: 10px;
+      white-space: pre-wrap;
+      min-height: 56px;
+    }
+    .chat {
+      max-height: 360px;
+      overflow-y: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fafafa;
+      margin-bottom: 10px;
+    }
+    .msg {
+      margin-bottom: 8px;
+      padding: 8px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+    }
+    .user { background: #e0ecff; }
+    .ai { background: #e8f7ec; }
+    .status-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 6px 0 10px;
+    }
+    .status-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #fff;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #9ca3af;
+      box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2);
+    }
+    .dot.ok {
+      background: #16a34a;
+      box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2);
+    }
+    .dot.bad {
+      background: #dc2626;
+      box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>AI Voice Assistant 测试页（云端 CosyVoice）</h1>
+      <div class="row">
+        <div>
+          <label>网关地址</label>
+          <input id="gatewayBase" value="http://127.0.0.1:8010" />
+        </div>
+        <div>
+          <label>TTS 音色（voice）</label>
+          <input id="voice" value="longyuan" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>TTS 模型（model）</label>
+          <input id="model" value="cosyvoice-v1" />
+        </div>
+        <div>
+          <label>健康检查</label>
+          <button id="healthBtn">检查网关/子服务</button>
+        </div>
+      </div>
+      <div class="status-row">
+        <div class="status-item"><span id="dotGateway" class="dot"></span>Gateway</div>
+        <div class="status-item"><span id="dotLLM" class="dot"></span>LLM</div>
+        <div class="status-item"><span id="dotTTS" class="dot"></span>TTS</div>
+        <div class="status-item"><span id="dotSTT" class="dot"></span>STT</div>
+      </div>
+      <div id="healthLog" class="log">等待检查...</div>
+    </div>
+
+    <div class="card">
+      <h2>1) 测试 LLM</h2>
+      <label>输入文本</label>
+      <textarea id="llmInput" placeholder="输入要发送给 LLM 的内容"></textarea>
+      <button id="llmBtn">获取回复</button>
+      <div id="llmLog" class="log">等待输入...</div>
+    </div>
+
+    <div class="card">
+      <h2>2) 测试 STT</h2>
+      <label>音频文件</label>
+      <input type="file" id="sttAudio" accept="audio/*">
+      <button id="sttBtn">转写文本</button>
+      <div id="sttLog" class="log">等待上传音频...</div>
+    </div>
+
+    <div class="card">
+      <h2>3) 直接测试 TTS</h2>
+      <label>输入文本</label>
+      <textarea id="ttsText">你好，这是阿里云 cosyvoice-v1 云端语音合成测试。</textarea>
+      <button id="ttsBtn">合成并播放</button>
+      <div id="ttsLog" class="log">等待合成...</div>
+    </div>
+
+    <div class="card">
+      <h2>4) 聊天 + TTS（走网关）</h2>
+      <div id="chatBox" class="chat"></div>
+      <label>你的问题</label>
+      <textarea id="chatInput" placeholder="输入要问 AI 的内容"></textarea>
+      <button id="chatBtn">发送并播放 AI 语音</button>
+      <div id="chatLog" class="log">等待对话...</div>
+    </div>
+  </div>
+
+  <script>
+    const chatHistory = [];
+    const sessionId = (() => {
+      const key = "ai_voice_session_id";
+      const existing = localStorage.getItem(key);
+      if (existing) return existing;
+      const id = (globalThis.crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `sess_${Date.now()}`;
+      localStorage.setItem(key, id);
+      return id;
+    })();
+
+    const el = {
+      gatewayBase: document.getElementById("gatewayBase"),
+      model: document.getElementById("model"),
+      voice: document.getElementById("voice"),
+      healthBtn: document.getElementById("healthBtn"),
+      healthLog: document.getElementById("healthLog"),
+      dotGateway: document.getElementById("dotGateway"),
+      dotLLM: document.getElementById("dotLLM"),
+      dotTTS: document.getElementById("dotTTS"),
+      dotSTT: document.getElementById("dotSTT"),
+      llmInput: document.getElementById("llmInput"),
+      llmBtn: document.getElementById("llmBtn"),
+      llmLog: document.getElementById("llmLog"),
+      sttAudio: document.getElementById("sttAudio"),
+      sttBtn: document.getElementById("sttBtn"),
+      sttLog: document.getElementById("sttLog"),
+      ttsText: document.getElementById("ttsText"),
+      ttsBtn: document.getElementById("ttsBtn"),
+      ttsLog: document.getElementById("ttsLog"),
+      chatBox: document.getElementById("chatBox"),
+      chatInput: document.getElementById("chatInput"),
+      chatBtn: document.getElementById("chatBtn"),
+      chatLog: document.getElementById("chatLog")
+    };
+
+    function base() {
+      return el.gatewayBase.value.trim().replace(/\/$/, "");
+    }
+
+    function appendChat(role, text) {
+      const div = document.createElement("div");
+      div.className = `msg ${role === "user" ? "user" : "ai"}`;
+      div.textContent = `${role === "user" ? "你" : "AI"}: ${text}`;
+      el.chatBox.appendChild(div);
+      el.chatBox.scrollTop = el.chatBox.scrollHeight;
+    }
+
+    function playBase64Audio(b64, mimeType = "audio/mpeg") {
+      const audio = new Audio(`data:${mimeType};base64,${b64}`);
+      return audio.play();
+    }
+
+    function setDot(dotEl, isOk) {
+      dotEl.classList.remove("ok", "bad");
+      dotEl.classList.add(isOk ? "ok" : "bad");
+    }
+
+    async function refreshHealth(showLoading = false) {
+      if (showLoading) el.healthLog.textContent = "检查中...";
+      try {
+        const res = await fetch(`${base()}/health`);
+        const data = await res.json();
+
+        setDot(el.dotGateway, res.ok);
+        setDot(el.dotLLM, !!data?.services?.llm?.ok);
+        setDot(el.dotTTS, !!data?.services?.tts?.ok);
+        setDot(el.dotSTT, !!data?.services?.stt?.ok);
+
+        el.healthLog.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        setDot(el.dotGateway, false);
+        setDot(el.dotLLM, false);
+        setDot(el.dotTTS, false);
+        setDot(el.dotSTT, false);
+        el.healthLog.textContent = `检查失败: ${e.message || e}`;
+      }
+    }
+
+    el.healthBtn.onclick = async () => {
+      await refreshHealth(true);
+    };
+
+    el.ttsBtn.onclick = async () => {
+      const text = el.ttsText.value.trim();
+      if (!text) {
+        el.ttsLog.textContent = "请输入文本";
+        return;
+      }
+
+      el.ttsBtn.disabled = true;
+      el.ttsLog.textContent = "合成中...";
+      try {
+        const res = await fetch(`${base()}/tts/synthesize/proxy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            model: el.model.value.trim() || "cosyvoice-v1",
+            voice: el.voice.value.trim() || "longyuan"
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "TTS 调用失败");
+
+        if (!data.audio_base64) throw new Error("未返回音频");
+        await playBase64Audio(data.audio_base64, data.audio_mime_type || "audio/mpeg");
+        el.ttsLog.textContent = `合成成功\nrequest_id: ${data.request_id || "-"}`;
+      } catch (e) {
+        el.ttsLog.textContent = `失败: ${e.message || e}`;
+      } finally {
+        el.ttsBtn.disabled = false;
+      }
+    };
+
+    el.chatBtn.onclick = async () => {
+      const text = el.chatInput.value.trim();
+      if (!text) {
+        el.chatLog.textContent = "请输入问题";
+        return;
+      }
+
+      appendChat("user", text);
+      chatHistory.push({ role: "user", content: text });
+
+      el.chatBtn.disabled = true;
+      el.chatLog.textContent = "AI 思考并合成中...";
+
+      try {
+        const res = await fetch(`${base()}/chat/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: chatHistory,
+            session_id: sessionId,
+            tts_model: el.model.value.trim() || "cosyvoice-v1",
+            tts_voice: el.voice.value.trim() || "longyuan"
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "chat/tts 调用失败");
+
+        const reply = data.reply_text || "";
+        appendChat("ai", reply || "（空回复）");
+        chatHistory.push({ role: "assistant", content: reply });
+
+        if (data.audio_base64) {
+          await playBase64Audio(data.audio_base64, data.audio_mime_type || "audio/mpeg");
+        }
+
+        el.chatInput.value = "";
+        el.chatLog.textContent = "完成";
+      } catch (e) {
+        el.chatLog.textContent = `失败: ${e.message || e}`;
+      } finally {
+        el.chatBtn.disabled = false;
+      }
+    };
+
+    el.llmBtn.onclick = async () => {
+      const text = el.llmInput.value.trim();
+      if (!text) {
+        el.llmLog.textContent = "请输入文本";
+        return;
+      }
+
+      el.llmBtn.disabled = true;
+      el.llmLog.textContent = "LLM 处理中...";
+      try {
+        const res = await fetch(`${base()}/llm/predict`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "LLM 调用失败");
+
+        const reply = data.reply_text || data.reply || "（空回复）";
+        el.llmLog.textContent = `LLM 回复: ${reply}`;
+      } catch (e) {
+        el.llmLog.textContent = `失败: ${e.message || e}`;
+      } finally {
+        el.llmBtn.disabled = false;
+      }
+    };
+
+    el.sttBtn.onclick = async () => {
+      const file = el.sttAudio.files[0];
+      if (!file) {
+        el.sttLog.textContent = "请上传音频文件";
+        return;
+      }
+
+      el.sttBtn.disabled = true;
+      el.sttLog.textContent = "STT 转写中...";
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(`${base()}/stt/transcribe`, {
+          method: "POST",
+          body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "STT 调用失败");
+
+        const transcript = data.text || "（无文本）";
+        el.sttLog.textContent = `转写结果: ${transcript}`;
+      } catch (e) {
+        el.sttLog.textContent = `失败: ${e.message || e}`;
+      } finally {
+        el.sttBtn.disabled = false;
+      }
+    };
+
+    refreshHealth(true);
+    // setInterval(() => refreshHealth(false), 5000);
+  </script>
+</body>
+
+</html>

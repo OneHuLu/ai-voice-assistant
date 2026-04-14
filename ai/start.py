@@ -13,23 +13,17 @@ LOCAL_ENV_PATH = os.path.join(PROJECT_ROOT, ".env.local")
 # 默认端口配置（与 config.json 保持一致）
 DEFAULT_PORTS = {
     "gateway": 8010,
-    "stt": 8000,      # 与 config.json stt.api_port 一致
-    "tts": 8030,      # 与 config.json tts.api_port 一致
-    "llm": 8041,      # 与 config.json llm.api_port 一致
+    "tts": 8030,
+    "llm": 8041,
 }
 
+# 云端服务（STT 直接调用 DashScope API，无需本地服务）
 SERVICES = {
     "gateway": {
         "env": "env-gateway",
         "yaml": "ai/gateway/env-gateway.yaml",
         "script": "ai/gateway/main.py",
         "port": DEFAULT_PORTS["gateway"]
-    },
-    "stt": {
-        "env": "env-stt",
-        "yaml": "ai/stt/env-stt.yaml",
-        "script": "ai/stt/whisper_service.py",
-        "port": DEFAULT_PORTS["stt"]
     },
     "tts": {
         "env": "env-tts",
@@ -62,17 +56,16 @@ def _load_file_config():
 
 def _apply_ports_from_config():
     """将 config 中端口映射到启动器服务清单。"""
-    # 启动器端口也走统一配置，确保 start.py 与各服务读取结果一致
     config = _load_file_config()
     service_port_map = {
         "gateway": ("gateway", "port", DEFAULT_PORTS["gateway"]),
-        "stt": ("stt", "api_port", DEFAULT_PORTS["stt"]),
-        "tts": ("tts", "api_port", DEFAULT_PORTS["tts"]),
+        "tts": ("tts", None, DEFAULT_PORTS["tts"]),  # TTS 端口由服务内部读取
         "llm": ("llm", "api_port", DEFAULT_PORTS["llm"]),
     }
     for service_name, (section, key, fallback) in service_port_map.items():
-        sec = config.get(section) if isinstance(config.get(section), dict) else {}
-        SERVICES[service_name]["port"] = int(os.getenv(f"{service_name.upper()}_PORT", str(sec.get(key, fallback))))
+        if key:
+            sec = config.get(section) if isinstance(config.get(section), dict) else {}
+            SERVICES[service_name]["port"] = int(os.getenv(f"{service_name.upper()}_PORT", str(sec.get(key, fallback))))
 
 
 def _apply_local_env_file() -> None:
@@ -135,7 +128,6 @@ def ensure_env(service):
 def start_service(name):
     """按服务名启动子进程并记录到 processes。"""
     config = SERVICES[name]
-    print('config ==>', config)
 
     ensure_env(config)
 
@@ -167,32 +159,30 @@ def stop_all():
 
 def main():
     """解析启动参数并按顺序启动指定服务。"""
-    parser = argparse.ArgumentParser()
-    
-    parser.add_argument("--all", action="store_true")
-    
+    parser = argparse.ArgumentParser(description="AI Voice Assistant 启动器（云端模式）")
 
-    for svc in SERVICES:
-        parser.add_argument(f"--{svc}", action="store_true")
+    parser.add_argument("--all", action="store_true", help="启动全部服务")
+    parser.add_argument("--gateway", action="store_true", help="启动网关服务")
+    parser.add_argument("--tts", action="store_true", help="启动 TTS 服务")
+    parser.add_argument("--llm", action="store_true", help="启动 LLM 服务")
 
     args = parser.parse_args()
 
     selected = []
 
-    print("args ==>", args)
     if args.all:
-        # 推荐启动顺序
-        selected = ["stt", "llm", "tts", "gateway"]
+        # 云端模式启动顺序：LLM -> TTS -> Gateway
+        selected = ["llm", "tts", "gateway"]
     else:
         for svc in SERVICES:
-            if getattr(args, svc):
+            if getattr(args, svc, False):
                 selected.append(svc)
 
     if not selected:
-        print("❌ 请指定服务，例如 --all 或 --tts")
+        print("❌ 请指定服务，例如 --all 或 --tts --gateway")
+        parser.print_help()
         return
 
-    print('selected ==>', selected)
     try:
         for svc in selected:
             start_service(svc)

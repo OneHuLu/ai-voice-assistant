@@ -82,3 +82,30 @@ def get_project_root(relative_to_file: str) -> str:
         项目根目录绝对路径
     """
     return os.path.abspath(os.path.join(os.path.dirname(relative_to_file), "..", ".."))
+
+
+def get_dashscope_api_key(root_cfg: Dict[str, Any]) -> str:
+    """获取 DashScope API Key（优先级：环境变量 > 根级别 > 服务级别）。
+
+    Args:
+        root_cfg: 根配置字典
+
+    Returns:
+        API Key 字符串
+    """
+    # 优先环境变量
+    env_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
+    if env_key:
+        return env_key
+    # 其次根级别配置
+    root_key = str(root_cfg.get("dashscope_api_key", "")).strip()
+    if root_key:
+        return root_key
+    # 最后从各服务配置中查找
+    for section in ["tts", "llm", "stt"]:
+        sec_cfg = root_cfg.get(section)
+        if isinstance(sec_cfg, dict):
+            key = str(sec_cfg.get("dashscope_api_key", "")).strip()
+            if key:
+                return key
+    return ""

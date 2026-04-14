@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -8,7 +9,9 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ai.utils.config_helper import get_config_path, load_config, get_config_value
+from ai.utils.config_helper import get_config_path, load_config, get_config_value, get_dashscope_api_key
+
+logger = logging.getLogger(__name__)
 
 
 def _base_url(raw_url: str) -> str:
@@ -17,10 +20,11 @@ def _base_url(raw_url: str) -> str:
 
 
 CONFIG_PATH = get_config_path()
-_gateway_cfg = load_config(CONFIG_PATH).get("gateway") or {}
-_tts_cfg = load_config(CONFIG_PATH).get("tts") or {}
-_llm_cfg = load_config(CONFIG_PATH).get("llm") or {}
-_stt_cfg = load_config(CONFIG_PATH).get("stt") or {}
+_root_cfg = load_config(CONFIG_PATH)
+_gateway_cfg = _root_cfg.get("gateway") or {}
+_tts_cfg = _root_cfg.get("tts") or {}
+_llm_cfg = _root_cfg.get("llm") or {}
+_stt_cfg = _root_cfg.get("stt") or {}
 
 
 def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) -> str:
@@ -28,8 +32,8 @@ def _cfg(file_cfg: Dict[str, Any], env_key: str, file_key: str, default: str) ->
     return get_config_value(file_cfg, env_key, file_key, default)
 
 
-# DashScope API Key（用于云端 LLM/TTS/STT）
-DASHSCOPE_API_KEY = _cfg(_tts_cfg, "DASHSCOPE_API_KEY", "dashscope_api_key", "")
+# DashScope API Key（用于云端 LLM/TTS/STT）- 统一从根级别或环境变量读取
+DASHSCOPE_API_KEY = get_dashscope_api_key(_root_cfg)
 DASHSCOPE_TTS_MODEL = _cfg(_tts_cfg, "DASHSCOPE_TTS_MODEL", "model", "cosyvoice-v1")
 
 
@@ -69,8 +73,8 @@ class ChatRequest(BaseModel):
 
 class TTSProxyRequest(BaseModel):
     text: str = Field(..., min_length=1)
-    model: str = "qwen3-tts-vd-2026-01-26"
-    voice: str = "qwen-tts-vd-bailian-voice-20260409172126147-95eb"
+    model: str = Field(default="cosyvoice-v1", description="TTS 模型名")
+    voice: str = Field(default="longyuan", description="TTS 音色")
 
 
 class LLMPredictRequest(BaseModel):
@@ -139,24 +143,16 @@ def health() -> Dict[str, Any]:
             checks["llm"] = {"ok": False, "error": str(e), "type": "local"}
 
     if USE_CLOUD_TTS:
-        try:
-            if DASHSCOPE_API_KEY:
-                headers = {"Authorization": f"Bearer {DASHSCOPE_API_KEY}", "Content-Type": "application/json"}
-                resp = requests.post(TTS_URL, headers=headers, json={
-                    "model": DASHSCOPE_TTS_MODEL,  # Use model from config
-                    "input": {"text": "hi"},
-                    "parameters": {"voice": "longyuan"},
-                }, timeout=10)
-                checks["tts"] = {
-                    "ok": resp.status_code < 500 and resp.status_code != 403,
-                    "status_code": resp.status_code,
-                    "type": "cloud",
-                    "quota_ok": resp.status_code != 429 and "AllocationQuota" not in (resp.text if resp.content else "")
-                }
-            else:
-                checks["tts"] = {"ok": False, "error": "No API key", "type": "cloud"}
-        except Exception as e:
-            checks["tts"] = {"ok": False, "error": str(e), "type": "cloud"}
+        # 云端 TTS 使用 WebSocket，无法直接 REST 健康检查
+        # 仅检查 API Key 是否配置
+        if DASHSCOPE_API_KEY:
+            checks["tts"] = {
+                "ok": True,
+                "type": "cloud",
+                "note": "API Key 已配置（WebSocket 连接需实际调用验证）",
+            }
+        else:
+            checks["tts"] = {"ok": False, "error": "No API key", "type": "cloud"}
     else:
         try:
             resp = requests.get(f"{_base_url(TTS_URL)}/health", timeout=3)
@@ -329,10 +325,8 @@ def _call_cloud_tts(text: str, model: str, voice: str) -> Dict[str, Any]:
     }
     resp = requests.post(TTS_URL, headers=headers, json=payload, timeout=120)
     if resp.status_code != 200:
-        # Return error details but with proper structure for the frontend
         error_detail = resp.json() if resp.content else {"error": "TTS API call failed"}
-        # Log the error for debugging but return a user-friendly message
-        print(f"TTS API Error: {resp.status_code} - {error_detail}")
+        logger.warning(f"TTS API Error: {resp.status_code} - {error_detail}")
         raise HTTPException(
             status_code=resp.status_code,
             detail=f"TTS 服务调用失败: {error_detail.get('message', 'Quota exceeded or API error')}. Code: {error_detail.get('code', 'Unknown')}"
