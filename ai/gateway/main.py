@@ -1,10 +1,13 @@
 import logging
 import os
+import tempfile
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
+import dashscope
 import requests
 import uvicorn
+from dashscope.audio.asr import Recognition, RecognitionCallback
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -268,45 +271,90 @@ def llm_predict(req: LLMPredictRequest) -> Dict[str, Any]:
     }
 
 
+class STTRecognitionCallback(RecognitionCallback):
+    """STT 回调类，用于收集识别结果。"""
+    def __init__(self):
+        self.result_text = ""
+
+    def on_complete(self):
+        pass
+
+    def on_error(self, error):
+        pass
+
+    def on_event(self, result):
+        sentence = result.get_sentence()
+        if sentence:
+            self.result_text += sentence.get("text", "")
+
+
 @app.post("/stt/transcribe")
 async def stt_transcribe(file: UploadFile = File(...)) -> Dict[str, Any]:
-    """STT 转写接口：接收音频文件，转发到 STT 服务。"""
-    if USE_CLOUD_STT:
-        if not DASHSCOPE_API_KEY:
-            raise HTTPException(status_code=500, detail="DASHSCOPE_API_KEY 未配置")
-        # DashScope paraformer API 需要通过 header 传递 model
-        headers = {
-            "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
-            "X-DashScope-Model": DASHSCOPE_STT_MODEL,
-        }
-        try:
-            stt_res = requests.post(
-                STT_URL,
-                headers=headers,
-                files={"file": (file.filename or "audio.wav", file.file, file.content_type or "application/octet-stream")},
-                timeout=120,
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"调用 STT 服务失败：{e}")
-    else:
-        try:
-            stt_res = requests.post(
-                STT_URL,
-                files={"file": (file.filename or "audio.wav", file.file, file.content_type or "application/octet-stream")},
-                timeout=120,
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"调用 STT 服务失败：{e}")
+    """STT 转写接口：接收音频文件，使用 DashScope Recognition SDK 进行识别。"""
+    if not DASHSCOPE_API_KEY:
+        raise HTTPException(status_code=500, detail="DASHSCOPE_API_KEY 未配置")
+
+    # 将上传的文件保存到临时文件
+    suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+        content = await file.read()
+        tmp_file.write(content)
+        tmp_path = tmp_file.name
 
     try:
-        stt_data = stt_res.json()
-    except Exception:
-        stt_data = {"text": stt_res.text}
+        # 设置 DashScope API Key
+        dashscope.api_key = DASHSCOPE_API_KEY
 
-    if stt_res.status_code != 200:
-        raise HTTPException(status_code=stt_res.status_code, detail=stt_data)
+        # 创建回调
+        callback = STTRecognitionCallback()
 
-    return stt_data
+        # 根据文件扩展名确定格式
+        format_name = suffix.lstrip(".").lower()
+        if format_name in ["wav", "pcm", "raw"]:
+            audio_format = "wav"
+            sample_rate = 16000
+        elif format_name in ["mp3", "mpga"]:
+            audio_format = "mp3"
+            sample_rate = 16000
+        elif format_name in ["ogg", "oga"]:
+            audio_format = "ogg"
+            sample_rate = 16000
+        elif format_name in ["flac"]:
+            audio_format = "flac"
+            sample_rate = 16000
+        elif format_name in ["m4a", "aac"]:
+            audio_format = "aac"
+            sample_rate = 16000
+        else:
+            audio_format = "wav"
+            sample_rate = 16000
+
+        # 创建 Recognition 实例
+        recognition = Recognition(
+            model=DASHSCOPE_STT_MODEL,
+            callback=callback,
+            format=audio_format,
+            sample_rate=sample_rate
+        )
+
+        # 调用识别
+        result = recognition.call(file=tmp_path)
+        request_id = recognition.get_last_request_id()
+
+        # 获取结果
+        text = callback.result_text or result.get_sentence().get("text", "") if result.get_sentence() else ""
+
+        return {
+            "text": text,
+            "request_id": request_id,
+            "model": DASHSCOPE_STT_MODEL
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"STT 识别失败: {str(e)}")
+    finally:
+        # 清理临时文件
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def _call_cloud_tts(text: str, model: str, voice: str) -> Dict[str, Any]:
